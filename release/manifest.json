@@ -1,0 +1,93 @@
+{
+  "dataset": "polymarket-uma-adjudication",
+  "version": "1.0.0",
+  "build_mode": "CHAIN",
+  "built_utc": "2026-10-04T23:51:00+00:00",
+  "rows": {
+    "cases": 4264,
+    "dvm_requests": 4261,
+    "rounds": 467,
+    "ballots": 2053728
+  },
+  "counts": {
+    "cases_by_link_status": {
+      "DVM_EXACT": 4261,
+      "PRE_VOTING_V2": 3
+    },
+    "cases_by_oo_contract": {
+      "MANAGED_OOV2": 2414,
+      "OOV2": 1850
+    },
+    "linked_conditions": 3248,
+    "requests_by_resolution_status": {
+      "RESOLVED": 4261
+    },
+    "requests_by_resolved_value_class": {
+      "P4_TOO_EARLY": 2273,
+      "P2": 1062,
+      "P1": 840,
+      "P3_UNKNOWN": 86
+    },
+    "ballots_by_value_class": {
+      "P4_TOO_EARLY": 1040727,
+      "P2": 540158,
+      "P1": 427248,
+      "P3_UNKNOWN": 45527,
+      "NONSTANDARD": 68
+    },
+    "distinct_voter_addresses": 6992,
+    "rounds": 467
+  },
+  "coverage": {
+    "first_dispute_ts": 1672439560,
+    "last_dispute_ts": 1787856952,
+    "first_round": 9715,
+    "last_round": 10347,
+    "last_ballot_block": 25871302,
+    "last_ballot_ts": 1788131603
+  },
+  "contracts": {
+    "voting_v2": "0x004395edb43EFca9885CEdad51EC9fAf93Bd34ac",
+    "voting_v2_chain": "ethereum",
+    "oo_chain": "polygon"
+  },
+  "cursor": {
+    "last_dispute_ts": 1787856952,
+    "last_ethereum_block": 25871302,
+    "last_round_id": 10347
+  },
+  "audit": {
+    "seed": 20261004,
+    "script_sha256": "090dc527acd9aecd3d6b23804b33c046d8256751bf2c33271e52ec494b50679e",
+    "run_timestamp_utc": "2026-10-05T01:16Z",
+    "rpc_chain_id": 1,
+    "strata": 9,
+    "n_cases_audited": 31,
+    "n_dvm_linked_verified": 28,
+    "n_pre_voting_v2_confirmed": 3,
+    "n_rounds_audited": 40,
+    "n_ballots_spot_checked": 200,
+    "n_field_comparisons": 1800,
+    "n_resolution_events_checked": 28,
+    "fields_per_ballot": ["voter", "caller", "price", "numTokens", "roundId", "block", "identifier", "time", "ancillaryData"],
+    "result": "PASS"
+  },
+  "environment": {
+    "python": "3.13.5",
+    "pandas": "2.2.3",
+    "pyarrow": "23.0.1",
+    "requests": "2.32.3",
+    "pycryptodome": "3.23.0"
+  },
+  "tests": {
+    "regression_suite": "146 passed, 6 expected skips, 0 failures",
+    "skip_reason": "PRE_VOTING_V2 cases have no DVM request (6 parametrized tests skipped as expected)"
+  },
+  "sha256": {
+    "cases.parquet": "f0b04887412637f3cdf5b47e061c325cf704db16fc4eea46eda49606c367df42",
+    "dvm_requests.parquet": "f3f1edd4e01bcd8ff01f198159cf2ad56d2e30c388b9728d17c93f47a7e832f3",
+    "rounds.parquet": "dcb352e172bdf19b8e1d33ccd0051719aafe248e3a1789ef74630491907437b6",
+    "ballots.parquet": "f0d612b45565987eb2bdcf75c6af2d0ac00fd912c9ddeca076e58c0ad7cc50c6",
+    "crosswalk.parquet": "5857e0d08d3c7efb62ede1cabf6546b6adec041f5a6d893cf3a9c4c854fd36ab"
+  }
+}

@@ -1,0 +1,24 @@
+# Optimistic Oracle deployments on Polygon used by Polymarket adapters.
+# The pipeline must fail-closed: only contracts with supported: true are processed.
+#
+# OOV2 address is not recorded in this codebase — the pipeline consumes its
+# data via externally pulled subgraph parquets, never querying OOV2 directly.
+# The address field is left as a descriptive tag used in registry/adapters.yaml.
+
+oracles:
+  OOV2:
+    address: null  # subgraph-sourced; pipeline identifies by tag, not address
+    label: "polygon OptimisticOracleV2"
+    chain: polygon
+    chain_id: 137
+    active_from: "2022-01"  # Polymarket disputes appear from late 2022
+    version: "OptimisticOracleV2"
+    supported: true
+
+  MANAGED_OOV2:
+    address: "0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1"
+    chain: polygon
+    chain_id: 137
+    active_from: "2025-Q3"  # Polymarket v4 adapters route through Managed OOV2
+    version: "ManagedOptimisticOracleV2"
+    supported: true

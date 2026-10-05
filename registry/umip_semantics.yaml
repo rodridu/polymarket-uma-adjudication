@@ -1,0 +1,41 @@
+# YES_OR_NO_QUERY price semantics (UMA UMIP / Polymarket adapter layer).
+#
+# UMA layer: what the int256 price means under the YES_OR_NO_QUERY identifier.
+# Adapter layer: what UmaCtfAdapter._constructPayouts / _ignorePrice does with it.
+#
+# The pipeline must fail-closed: prices not in this table classify as NONSTANDARD
+# and trigger ADAPTER_REVERT (the adapter's InvalidOOPrice revert).
+
+price_encoding:
+  P1:
+    raw_int256: 0
+    raw_hex: "0x0000000000000000000000000000000000000000000000000000000000000000"
+    meaning: "First option (typically NO)"
+    ctf_payout: [0, 1]
+    adapter_effect: SETTLE
+
+  P2:
+    raw_int256: 1000000000000000000  # 1e18
+    raw_hex: "0x0000000000000000000000000000000000000000000000000de0b6b3a7640000"
+    meaning: "Second option (typically YES)"
+    ctf_payout: [1, 0]
+    adapter_effect: SETTLE
+
+  P3_UNKNOWN:
+    raw_int256: 500000000000000000  # 0.5e18
+    raw_hex: "0x00000000000000000000000000000000000000000000000006f05b59d3b20000"
+    meaning: "Cannot be determined (UNKNOWN / CANT_DETERMINE)"
+    ctf_payout: [1, 1]
+    adapter_effect: SETTLE
+
+  P4_TOO_EARLY:
+    raw_int256: -57896044618658097711785492504343953926634992332820282019728792003956564819968  # int256.min = -(2^255)
+    raw_uint256: 57896044618658097711785492504343953926634992332820282019728792003956564819968  # 2^255 as unsigned
+    raw_hex: "0x8000000000000000000000000000000000000000000000000000000000000000"
+    meaning: "Too early to resolve; request should be retried later"
+    ctf_payout: null
+    adapter_effect: RESET
+
+constants:
+  E18: 1000000000000000000
+  INT256_MIN: -57896044618658097711785492504343953926634992332820282019728792003956564819968

@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this dataset, please cite it as below."
+title: "Polymarket–UMA Adjudication Data"
+type: dataset
+authors:
+  - family-names: Du
+    given-names: Hongzhen
+    affiliation: "Kellogg School of Management, Northwestern University"
+version: 1.0.0
+license: other
+repository-code: "https://github.com/rodridu/polymarket-uma-adjudication"

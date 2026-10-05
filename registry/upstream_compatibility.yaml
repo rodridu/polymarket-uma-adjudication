@@ -1,0 +1,33 @@
+jia:
+  title: "Unlocking the Forecasting Economy"
+  version: arXiv:2604.20421v2
+  date: 2026-09-25
+  verified_date: 2026-10-05
+  join_keys:
+    condition_id: condition_id
+    question_id: question_id
+  notes: >
+    Jia's Market table (M) and Oracle Events table (O) carry condition_id and question_id.
+    Oracle Events also carries request_id which maps to oo_request_id.
+
+nechepurenko_part_i:
+  title: "Automated Decoding of Polymarket Oracle Adjudication"
+  version: arXiv:2609.15368v1
+  date: 2026-09-14
+  verified_date: 2026-10-05
+  join_keys:
+    condition_id: condition_id
+    question_id: question_id
+  notes: >
+    Oracle lifecycle events. Uses adapter_address + question_id as stable question identifier.
+
+nechepurenko_part_ii:
+  title: "Protocol Finality and Redemption"
+  version: arXiv:2609.15373v1
+  date: 2026-09-14
+  verified_date: 2026-10-05
+  join_keys:
+    condition_id: condition_id
+  notes: >
+    ConditionResolution and PayoutRedemption events. condition_id is the primary join surface.
+    resolved_ctf_payout in our dvm_requests should match their payout_numerators for resolved cases.

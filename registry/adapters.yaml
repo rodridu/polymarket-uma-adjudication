@@ -1,0 +1,43 @@
+# Polymarket UMA CTF adapters on Polygon (chain 137).
+# Source: Polymarket/resolution-subgraph src/utils/constants.ts
+# and Polymarket/neg-risk-ctf-adapter addresses.json.
+# Read 2026-08-22.
+#
+# The pipeline must fail-closed: only adapters listed here with supported: true
+# are recognised as valid OO requesters.
+
+adapters:
+  - address: "0xcb1822859cef82cd2eb4e6276c7916e692995130"
+    architecture: STANDARD
+    adapter_version: v1
+    supported: true
+
+  - address: "0x6a9d222616c90fca5754cd1333cfd9b7fb6a4f74"
+    architecture: STANDARD
+    adapter_version: v2
+    supported: true
+
+  - address: "0x157ce2d672854c848c9b79c49a8cc6cc89176a49"
+    architecture: STANDARD
+    adapter_version: v3
+    supported: true
+
+  - address: "0x65070be91477460d8a7aeeb94ef92fe056c2f2a7"
+    architecture: STANDARD
+    adapter_version: v4
+    supported: true
+
+  - address: "0x2f5e3684cb1f318ec51b00edba38d79ac2c0aa9d"
+    architecture: NEGRISK
+    adapter_version: base
+    negrisk_operator: "0x71523d0f655b41e805cec45b17163f528b59b820"
+    negrisk_adapter: "0xd91e80cf2e7be2e162c6513ced06f1dd0da35296"
+    supported: true
+
+  - address: "0x69c47de9d4d3dad79590d61b9e05918e03775f24"
+    architecture: NEGRISK
+    adapter_version: v4
+    negrisk_operator: null  # not yet confirmed from first-party source
+    negrisk_adapter: null
+    supported: true
+    note: "condition_id stays null (OPERATOR_PROVENANCE_UNVERIFIED) until operator/adapter confirmed"
