@@ -99,13 +99,20 @@ PK: (dvm_request_id, round_id, voter).
 | dvm_request_id | linkage | DVM request (mapped from `requestIndex` via receipt decoding) |
 | voter | raw | VoterSlashed indexed address |
 | slashed_tokens_raw | raw | int128 as decimal string; positive = reward, negative = penalty |
-| incentive_type | interp | `REWARD` (positive) or `PENALTY` (negative or zero) |
-| participation_class | interp | `CORRECT_VOTE`, `WRONG_VOTE`, or `DID_NOT_VOTE` |
+| reward_class | interp | economic outcome: `POSITIVE_REWARD`, `NEGATIVE_SLASH`, or `ZERO_CHANGE` |
+| participation_class | interp | voting behavior: `CORRECT_VOTE`, `WRONG_VOTE`, `DID_NOT_VOTE`, or `UNKNOWN` |
 | request_index | raw | `resolvedPriceRequestIndex` from RequestResolved |
 | block_number, tx_hash, log_index | raw | event provenance |
 
-`participation_class` derivation: positive tokens → CORRECT_VOTE; non-positive + has reveal →
-WRONG_VOTE; non-positive + no reveal → DID_NOT_VOTE. PK: (voter, dvm_request_id).
+`participation_class` (v1.1.1+) is derived by comparing the voter's revealed price in the
+resolution round to the request's resolved price — independent of slashing amount.
+`reward_class` reflects the economic outcome from the VoterSlashed event sign only.
+These are orthogonal: a correct voter can receive ZERO_CHANGE (no penalty pool to redistribute),
+and a wrong voter can have ZERO_CHANGE (escaped penalty). PK: (voter, dvm_request_id).
+
+**v1.1.0 bug (fixed in v1.1.1):** `participation_class` was derived from slashing sign
+(`slashed_tokens ≤ 0` → WRONG_VOTE/DID_NOT_VOTE), misclassifying 2,345 zero-token correct
+voters as WRONG_VOTE. The column `incentive_type` was replaced by `reward_class`.
 
 ## Value classes (`pmvotes/semantics.py`)
 

@@ -228,6 +228,9 @@ class TestCommitLayerRegression:
 
     def test_incentive_classes_valid(self, commit_tables):
         vi = commit_tables["voter_request_incentives"]
-        valid = {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE"}
-        assert set(vi["participation_class"]) <= valid
-        assert set(vi["incentive_type"]) <= {"REWARD", "PENALTY"}
+        valid_pc = {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE", "UNKNOWN"}
+        assert set(vi["participation_class"]) <= valid_pc
+        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
+        assert set(vi["reward_class"]) <= valid_rc
+        pos = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)]
+        assert pos["participation_class"].eq("CORRECT_VOTE").all()

@@ -207,12 +207,13 @@ class TestCommitLayerMiniFixtures:
         vals = vi["slashed_tokens_raw"].dropna()
         assert all(INT_RE.match(str(v)) for v in vals)
 
-    def test_incentive_sign_consistency(self):
+    def test_orthogonal_classification(self):
         vi = MINI_TABLES["voter_request_incentives"]
+        assert set(vi["participation_class"]) <= {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE", "UNKNOWN"}
+        assert set(vi["reward_class"]) <= {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
         pos = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)]
         assert pos["participation_class"].eq("CORRECT_VOTE").all()
-        neg = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) < 0)]
-        assert neg["participation_class"].isin(["WRONG_VOTE", "DID_NOT_VOTE"]).all()
+        assert pos["reward_class"].eq("POSITIVE_REWARD").all()
 
     def test_commit_layer_nonempty(self):
         assert len(MINI_TABLES["commits"]) > 0

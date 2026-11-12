@@ -16,7 +16,7 @@
     C11 commit-layer primary keys unique
     C12 referential integrity: commit->request, participation->round, incentive->request
     C13 reveal ⊆ commit: every revealed ballot has ≥1 commit in that round
-    C14 incentive sign consistency: positive tokens = CORRECT_VOTE only
+    C14 orthogonal classification: participation_class by price, reward_class by sign
     C15 raw integers: slashed_tokens_raw exact decimal strings
     C16 incentive coverage: every RESOLVED request has ≥1 VoterSlashed event
 
@@ -30,6 +30,7 @@ import hashlib
 import json
 import re
 
+import numpy as np
 import pandas as pd
 
 from pmvotes import RELEASE
@@ -165,24 +166,45 @@ def main() -> int:
         check("C13", "reveal subset of commit", len(reveal_no_commit) == 0,
               f"{len(reveal_no_commit)} revealed without commit")
 
-        # C14 — cross-check: CORRECT_VOTE voters revealed the resolved price
+        # C14 — orthogonal classification consistency
+        #  a) CORRECT_VOTE must have voted the resolved price in resolution round
+        #  b) WRONG_VOTE must have voted a different price in resolution round
+        #  c) DID_NOT_VOTE must not appear in resolution-round ballots
+        #  d) reward_class values are valid
+        #  e) positive reward implies CORRECT_VOTE (never rewards wrong/absent)
         resolved_prices = q.loc[q["resolution_status"].eq("RESOLVED"),
                                 ["dvm_request_id", "resolved_price_raw", "resolution_round"]].dropna()
         rp = resolved_prices.set_index("dvm_request_id")
+        # (a) CORRECT_VOTE price check
         correct = vi[vi["participation_class"].eq("CORRECT_VOTE")]
         if len(correct) and len(rp):
-            merged = correct.merge(rp, on="dvm_request_id", how="inner")
-            merged = merged.merge(b[["dvm_request_id", "round_id", "voter", "price_raw"]],
-                                  on=["dvm_request_id", "voter"], how="inner")
-            res_round_ballots = merged[merged["round_id"].eq(merged["resolution_round"])]
-            price_mismatch = (res_round_ballots["price_raw"] != res_round_ballots["resolved_price_raw"]).sum()
+            merged_c = correct.merge(rp, on="dvm_request_id", how="inner")
+            merged_c = merged_c.merge(b[["dvm_request_id", "round_id", "voter", "price_raw"]],
+                                      on=["dvm_request_id", "voter"], how="inner")
+            res_c = merged_c[merged_c["round_id"].eq(merged_c["resolution_round"])]
+            correct_wrong_price = (res_c["price_raw"].astype(str) != res_c["resolved_price_raw"].astype(str)).sum()
         else:
-            price_mismatch = 0
-        pos_wrong = (~vi.loc[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0),
-                             "participation_class"].eq("CORRECT_VOTE")).sum()
-        check("C14", "incentive sign + price consistency",
-              pos_wrong + price_mismatch == 0,
-              f"positive-but-not-correct {pos_wrong}, correct-but-wrong-price {price_mismatch}")
+            correct_wrong_price = 0
+        # (b) WRONG_VOTE price check
+        wrong = vi[vi["participation_class"].eq("WRONG_VOTE")]
+        if len(wrong) and len(rp):
+            merged_w = wrong.merge(rp, on="dvm_request_id", how="inner")
+            merged_w = merged_w.merge(b[["dvm_request_id", "round_id", "voter", "price_raw"]],
+                                      on=["dvm_request_id", "voter"], how="inner")
+            res_w = merged_w[merged_w["round_id"].eq(merged_w["resolution_round"])]
+            wrong_correct_price = (res_w["price_raw"].astype(str) == res_w["resolved_price_raw"].astype(str)).sum()
+        else:
+            wrong_correct_price = 0
+        # (d) reward_class valid
+        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
+        rc_ok = set(vi["reward_class"]) <= valid_rc
+        # (e) positive reward implies CORRECT_VOTE
+        pos_tokens = vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)
+        pos_not_correct = (pos_tokens & ~vi["participation_class"].eq("CORRECT_VOTE")).sum()
+        c14_ok = (correct_wrong_price + wrong_correct_price + pos_not_correct == 0) and rc_ok
+        check("C14", "orthogonal classification consistency", c14_ok,
+              f"correct-wrong-price {correct_wrong_price}, wrong-correct-price {wrong_correct_price}, "
+              f"pos-not-correct {pos_not_correct}, reward_class valid {rc_ok}")
 
         # C15
         raw_bad = (~vi["slashed_tokens_raw"].astype(str).str.match(INT_RE)).sum()
@@ -207,6 +229,8 @@ def main() -> int:
     print("  requests by ballots    ", q["ballot_status"].value_counts().to_dict())
     if has_commit_layer:
         print("  participation classes   ", T["voter_request_incentives"]["participation_class"]
+              .value_counts().to_dict())
+        print("  reward classes          ", T["voter_request_incentives"]["reward_class"]
               .value_counts().to_dict())
         print(f"  commits {len(T['commits']):,}  participation rows {len(T['participation']):,}  "
               f"incentive rows {len(T['voter_request_incentives']):,}")

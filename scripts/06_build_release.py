@@ -23,13 +23,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from pmvotes import RAW, RELEASE
 from pmvotes.chain import ROUND_SECONDS, VOTING_V2
 from pmvotes.semantics import classify
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 
 def _cls(series: pd.Series, prefix: str) -> pd.DataFrame:
@@ -200,18 +201,35 @@ def main() -> int:
 
         # ------------------------------------------------------------ voter_request_incentives (v1.1)
         vs_linked = vs[vs["dvm_request_id"].isin(linked["dvm_request_id"])].copy()
-        revealers = set(zip(ballots["dvm_request_id"], ballots["voter"]))
-        vs_linked["incentive_type"] = vs_linked["slashed_tokens_raw"].map(
-            lambda s: "REWARD" if int(s) > 0 else "PENALTY")
-        vs_linked["has_reveal"] = [
-            (r, v) in revealers
-            for r, v in zip(vs_linked["dvm_request_id"], vs_linked["voter"])]
-        vs_linked["participation_class"] = [
-            "CORRECT_VOTE" if int(s) > 0
-            else ("WRONG_VOTE" if rev else "DID_NOT_VOTE")
-            for s, rev in zip(vs_linked["slashed_tokens_raw"], vs_linked["has_reveal"])]
+
+        # reward_class: economic outcome from slashing sign only
+        tokens_int = vs_linked["slashed_tokens_raw"].map(lambda s: int(s))
+        vs_linked["reward_class"] = np.where(
+            tokens_int > 0, "POSITIVE_REWARD",
+            np.where(tokens_int < 0, "NEGATIVE_SLASH", "ZERO_CHANGE"))
+
+        # participation_class: behavioral classification by price comparison
+        # Build resolution-round revealed prices per (request, voter)
+        res_round_map = req.set_index("dvm_request_id")["resolution_round"].to_dict()
+        resolved_map = req.set_index("dvm_request_id")["resolved_price_raw"].to_dict()
+        ballots_copy = ballots.copy()
+        ballots_copy["_res_round"] = ballots_copy["dvm_request_id"].map(res_round_map)
+        res_ballots = ballots_copy[ballots_copy["round_id"] == ballots_copy["_res_round"]]
+        res_reveal = res_ballots.groupby(["dvm_request_id", "voter"])["price_raw"].first().reset_index()
+        res_reveal.columns = ["dvm_request_id", "voter", "_revealed_price"]
+
+        vs_linked = vs_linked.merge(res_reveal, on=["dvm_request_id", "voter"], how="left")
+        vs_linked["_resolved"] = vs_linked["dvm_request_id"].map(resolved_map)
+        has_reveal = vs_linked["_revealed_price"].notna()
+        voted_correct = has_reveal & (vs_linked["_revealed_price"].astype(str) == vs_linked["_resolved"].astype(str))
+        voted_wrong = has_reveal & (vs_linked["_revealed_price"].astype(str) != vs_linked["_resolved"].astype(str))
+        vs_linked["participation_class"] = np.where(
+            voted_correct, "CORRECT_VOTE",
+            np.where(voted_wrong, "WRONG_VOTE",
+                     np.where(~has_reveal, "DID_NOT_VOTE", "UNKNOWN")))
+
         incentives = vs_linked[["dvm_request_id", "voter", "slashed_tokens_raw",
-                                "incentive_type", "participation_class", "request_index",
+                                "reward_class", "participation_class", "request_index",
                                 "block_number", "tx_hash", "log_index"]] \
             .sort_values(["dvm_request_id", "voter"]).reset_index(drop=True)
 
@@ -243,6 +261,8 @@ def main() -> int:
             **({"distinct_commit_voters": int(commits["voter"].nunique()),
                 "participation_class_counts":
                     incentives["participation_class"].value_counts().to_dict(),
+                "reward_class_counts":
+                    incentives["reward_class"].value_counts().to_dict(),
                 } if has_commit_layer else {}),
         },
         "coverage": {

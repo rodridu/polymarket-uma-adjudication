@@ -1,8 +1,8 @@
 {
   "dataset": "polymarket-uma-adjudication",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "build_mode": "CHAIN",
-  "built_utc": "2026-11-12T03:56:44+00:00",
+  "built_utc": "2026-11-12T07:57:04+00:00",
   "rows": {
     "cases": 4264,
     "dvm_requests": 4261,
@@ -42,9 +42,14 @@
     "rounds": 467,
     "distinct_commit_voters": 8416,
     "participation_class_counts": {
-      "CORRECT_VOTE": 1920685,
-      "DID_NOT_VOTE": 972446,
-      "WRONG_VOTE": 67785
+      "CORRECT_VOTE": 1922701,
+      "DID_NOT_VOTE": 974977,
+      "WRONG_VOTE": 63238
+    },
+    "reward_class_counts": {
+      "POSITIVE_REWARD": 1920685,
+      "NEGATIVE_SLASH": 941560,
+      "ZERO_CHANGE": 98671
     }
   },
   "coverage": {
@@ -72,6 +77,6 @@
     "ballots.parquet": "f0d612b45565987eb2bdcf75c6af2d0ac00fd912c9ddeca076e58c0ad7cc50c6",
     "commits.parquet": "5e9c5b625ad4b97ab11254c0fc313004658a66a3215bff14a6da13eb92f57392",
     "participation.parquet": "4aea369a968481a648caf6376cc3b101bc1202b8e2f297676a287c51bccd7f67",
-    "voter_request_incentives.parquet": "721208ba9f0d00ba81944b8201f6a464068f90406c0d1752b606e45947ef79d5"
+    "voter_request_incentives.parquet": "05a89102ee5e3f1a562b1f8a52287def6652f7f655a8e32b86140b55af88feeb"
   }
 }
