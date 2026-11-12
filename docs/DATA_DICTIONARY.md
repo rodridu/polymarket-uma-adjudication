@@ -110,12 +110,16 @@ resolution round to the request's resolved price — independent of slashing amo
 not a full eligibility proof — actual eligibility depends on per-round stake snapshot and
 contract rules) with no resolution-round reveal. `UNKNOWN` is the fallback when neither
 VoterSlashed nor a resolution-round ballot exists for the voter.
-`reward_class` reflects the economic outcome from the VoterSlashed event sign only;
-`NOT_OBSERVED` marks voters with a resolution-round ballot but no VoterSlashed event
-(lazy `updateTrackers()` not yet triggered). These columns are orthogonal: a correct voter
-can receive ZERO_CHANGE (no penalty pool), a wrong voter can have ZERO_CHANGE (escaped
-penalty), and a ballot-only voter has NOT_OBSERVED regardless of vote correctness.
+`reward_class` reflects the **observed** economic outcome from the VoterSlashed event sign,
+not the **final** economic outcome. `NOT_OBSERVED` marks voters with a resolution-round
+ballot but no VoterSlashed event (lazy `updateTrackers()` not yet triggered); it does not
+mean the voter incurred no penalty — only that the penalty has not been observed on chain.
+These columns are orthogonal: a correct voter can receive ZERO_CHANGE (no penalty pool),
+a wrong voter can have ZERO_CHANGE (escaped penalty), and a ballot-only voter has
+NOT_OBSERVED regardless of vote correctness.
 Rows with `NOT_OBSERVED` have null `slashed_tokens_raw` and null provenance fields.
+In v1.1.1, 86.4% of identifiable wrong-vote (voter, request) pairs have an observed
+VoterSlashed event; 13.6% (9,983 rows) are NOT_OBSERVED.
 PK: (voter, dvm_request_id).
 
 **v1.1.0 bug (fixed in v1.1.1):** `participation_class` was derived from slashing sign
