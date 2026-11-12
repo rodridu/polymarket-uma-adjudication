@@ -1,9 +1,15 @@
-"""06 -- build the four release tables and the manifest from data/raw.
+"""06 -- build the release tables and the manifest from data/raw.
 
+    v1.0 tables:
     cases.parquet         one row per disputed OO attempt on a Polymarket binary adapter
     dvm_requests.parquet  one row per DVM request exactly linked to a case
     rounds.parquet        one row per VotingV2 round holding a linked ballot
     ballots.parquet       one row per VoteRevealed event for a linked request
+
+    v1.1 tables (built when commit-layer raw files are present):
+    commits.parquet                   one row per VoteCommitted event
+    participation.parquet             one row per (request, round, voter)
+    voter_request_incentives.parquet  one row per (voter, request) from VoterSlashed
 
 No row is dropped for being inconvenient: every case stays, with dvm_link_status; every linked
 request stays, with resolution_status and ballot_status. Raw integers are decimal strings.
@@ -23,7 +29,7 @@ from pmvotes import RAW, RELEASE
 from pmvotes.chain import ROUND_SECONDS, VOTING_V2
 from pmvotes.semantics import classify
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 
 def _cls(series: pd.Series, prefix: str) -> pd.DataFrame:
@@ -53,6 +59,10 @@ def main() -> int:
     res = pd.read_parquet(RAW / "request_resolved.parquet")
     rs = pd.read_parquet(RAW / "round_state.parquet")
     legacy = "resolution_source" in res.columns and res["resolution_source"].eq("LEGACY_SNAPSHOT").all()
+    has_commit_layer = (RAW / "vote_committed.parquet").exists() and (RAW / "voter_slashed.parquet").exists()
+    if has_commit_layer:
+        vc = pd.read_parquet(RAW / "vote_committed.parquet")
+        vs = pd.read_parquet(RAW / "voter_slashed.parquet")
 
     # ---------------------------------------------------------------- cases
     cases = oo.merge(links, on="oo_request_id", how="left", validate="1:1")
@@ -130,7 +140,14 @@ def main() -> int:
         "first_reveal_ts", "last_reveal_ts"]]
 
     # ---------------------------------------------------------------- rounds
-    used = sorted(set(ballots["round_id"]))
+    commit_round_ids = (set(vc.loc[vc["dvm_request_id"].isin(linked["dvm_request_id"]), "round_id"])
+                        if has_commit_layer else set())
+    used = sorted(set(ballots["round_id"]) | commit_round_ids)
+    missing_rs = commit_round_ids - set(rs["round_id"])
+    if missing_rs:
+        print(f"WARNING: {len(missing_rs)} commit-only rounds absent from round_state; "
+              f"re-run 05_pull_round_state with commit rounds. Dropping: {sorted(missing_rs)[:5]}")
+    used = sorted(set(used) - missing_rs)
     rounds = rs[rs["round_id"].isin(used)].copy()
     for c in ("minParticipationRequirement", "minAgreementRequirement", "cumulativeStakeAtRound"):
         rounds[c] = rounds[c].map(lambda v: str(int(v)))
@@ -143,16 +160,68 @@ def main() -> int:
     rounds["round_start_ts"] = rounds["round_id"] * ROUND_SECONDS
     rounds["reveal_start_ts"] = rounds["round_start_ts"] + ROUND_SECONDS // 2
     rounds["round_end_ts"] = rounds["round_start_ts"] + ROUND_SECONDS
+    all_round_requests = ballots[["round_id", "dvm_request_id"]]
+    if has_commit_layer:
+        all_round_requests = pd.concat([all_round_requests,
+                                        vc.loc[vc["dvm_request_id"].isin(linked["dvm_request_id"]),
+                                               ["round_id", "dvm_request_id"]]])
     rounds["n_linked_requests"] = rounds["round_id"].map(
-        ballots.groupby("round_id")["dvm_request_id"].nunique())
+        all_round_requests.groupby("round_id")["dvm_request_id"].nunique())
     rounds = rounds[["round_id", "round_start_ts", "reveal_start_ts", "round_end_ts",
                      "cumulative_stake_raw", "min_participation_raw", "min_agreement_raw",
                      "n_requests_to_vote", "slashing_library", "state_read_block",
                      "n_linked_requests"]].sort_values("round_id").reset_index(drop=True)
 
+    # ---------------------------------------------------------------- commits (v1.1)
+    commits, participation, incentives = None, None, None
+    if has_commit_layer:
+        vc_linked = vc[vc["dvm_request_id"].isin(linked["dvm_request_id"])].copy()
+        commits = vc_linked.merge(linked[["dvm_request_id", "condition_id"]],
+                                  on="dvm_request_id", how="left")
+        commits = commits[["dvm_request_id", "round_id", "condition_id", "voter", "caller",
+                           "block_number", "block_timestamp", "tx_hash", "log_index"]] \
+            .sort_values(["dvm_request_id", "round_id", "block_timestamp", "voter"]) \
+            .reset_index(drop=True)
+
+        # ------------------------------------------------------------ participation (v1.1)
+        commit_keys = commits.groupby(["dvm_request_id", "round_id", "voter"]).agg(
+            commit_count=("tx_hash", "size")).reset_index()
+        commit_keys["committed"] = True
+        ballot_keys = ballots[["dvm_request_id", "round_id", "voter"]].drop_duplicates()
+        ballot_keys["revealed"] = True
+        participation = commit_keys.merge(ballot_keys, on=["dvm_request_id", "round_id", "voter"],
+                                          how="outer")
+        participation["committed"] = participation["committed"].fillna(False).astype(bool)
+        participation["revealed"] = participation["revealed"].fillna(False).astype(bool)
+        participation["commit_count"] = participation["commit_count"].fillna(0).astype(int)
+        participation = participation[["dvm_request_id", "round_id", "voter",
+                                       "committed", "revealed", "commit_count"]] \
+            .sort_values(["dvm_request_id", "round_id", "voter"]).reset_index(drop=True)
+
+        # ------------------------------------------------------------ voter_request_incentives (v1.1)
+        vs_linked = vs[vs["dvm_request_id"].isin(linked["dvm_request_id"])].copy()
+        revealers = set(zip(ballots["dvm_request_id"], ballots["voter"]))
+        vs_linked["incentive_type"] = vs_linked["slashed_tokens_raw"].map(
+            lambda s: "REWARD" if int(s) > 0 else "PENALTY")
+        vs_linked["has_reveal"] = [
+            (r, v) in revealers
+            for r, v in zip(vs_linked["dvm_request_id"], vs_linked["voter"])]
+        vs_linked["participation_class"] = [
+            "CORRECT_VOTE" if int(s) > 0
+            else ("WRONG_VOTE" if rev else "DID_NOT_VOTE")
+            for s, rev in zip(vs_linked["slashed_tokens_raw"], vs_linked["has_reveal"])]
+        incentives = vs_linked[["dvm_request_id", "voter", "slashed_tokens_raw",
+                                "incentive_type", "participation_class", "request_index",
+                                "block_number", "tx_hash", "log_index"]] \
+            .sort_values(["dvm_request_id", "voter"]).reset_index(drop=True)
+
     # ---------------------------------------------------------------- write
     RELEASE.mkdir(parents=True, exist_ok=True)
     tables = {"cases": cases, "dvm_requests": req, "rounds": rounds, "ballots": ballots}
+    if has_commit_layer:
+        tables["commits"] = commits
+        tables["participation"] = participation
+        tables["voter_request_incentives"] = incentives
     for k, df in tables.items():
         df.to_parquet(RELEASE / f"{k}.parquet", index=False)
     manifest = {
@@ -171,6 +240,10 @@ def main() -> int:
             "ballots_by_value_class": ballots["uma_value_class"].value_counts().to_dict(),
             "distinct_voter_addresses": int(ballots["voter"].nunique()),
             "rounds": int(len(rounds)),
+            **({"distinct_commit_voters": int(commits["voter"].nunique()),
+                "participation_class_counts":
+                    incentives["participation_class"].value_counts().to_dict(),
+                } if has_commit_layer else {}),
         },
         "coverage": {
             "first_dispute_ts": int(pd.to_numeric(cases["dispute_timestamp"]).min()),

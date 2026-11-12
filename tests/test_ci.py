@@ -19,6 +19,11 @@ MINI_TABLES = {
     name: pd.read_parquet(MINI / f"{name}.parquet")
     for name in ("cases", "dvm_requests", "rounds", "ballots", "crosswalk")
 }
+_COMMIT_LAYER_NAMES = ("commits", "participation", "voter_request_incentives")
+_HAS_COMMIT_LAYER = all((MINI / f"{n}.parquet").exists() for n in _COMMIT_LAYER_NAMES)
+if _HAS_COMMIT_LAYER:
+    for n in _COMMIT_LAYER_NAMES:
+        MINI_TABLES[n] = pd.read_parquet(MINI / f"{n}.parquet")
 
 
 class TestPackageImport:
@@ -159,9 +164,69 @@ class TestMiniFixtureInvariants:
         assert len(MINI_TABLES["crosswalk"]) == 3
 
 
+_skip_commit = pytest.mark.skipif(not _HAS_COMMIT_LAYER,
+                                  reason="commit-layer mini fixtures not present")
+
+
+@_skip_commit
+class TestCommitLayerMiniFixtures:
+    """C11-C13, C15 on committed mini fixtures (when present)."""
+
+    def test_c11_commits_pk(self):
+        cm = MINI_TABLES["commits"]
+        assert not cm.duplicated(subset=["dvm_request_id", "round_id", "voter",
+                                          "tx_hash", "log_index"]).any()
+
+    def test_c11_participation_pk(self):
+        pt = MINI_TABLES["participation"]
+        assert not pt.duplicated(subset=["dvm_request_id", "round_id", "voter"]).any()
+
+    def test_c11_incentives_pk(self):
+        vi = MINI_TABLES["voter_request_incentives"]
+        assert not vi.duplicated(subset=["voter", "dvm_request_id"]).any()
+
+    def test_c12_commit_request_exists(self):
+        commit_ids = set(MINI_TABLES["commits"]["dvm_request_id"])
+        dvm_ids = set(MINI_TABLES["dvm_requests"]["dvm_request_id"])
+        assert commit_ids <= dvm_ids
+
+    def test_c12_participation_round_exists(self):
+        part_rounds = set(MINI_TABLES["participation"]["round_id"])
+        round_ids = set(MINI_TABLES["rounds"]["round_id"])
+        assert part_rounds <= round_ids
+
+    def test_c13_reveal_subset_of_commit(self):
+        b = MINI_TABLES["ballots"]
+        cm = MINI_TABLES["commits"]
+        revealed = set(zip(b["dvm_request_id"], b["round_id"], b["voter"]))
+        committed = set(zip(cm["dvm_request_id"], cm["round_id"], cm["voter"]))
+        assert revealed <= committed
+
+    def test_c15_slashed_tokens_raw_integers(self):
+        vi = MINI_TABLES["voter_request_incentives"]
+        vals = vi["slashed_tokens_raw"].dropna()
+        assert all(INT_RE.match(str(v)) for v in vals)
+
+    def test_incentive_sign_consistency(self):
+        vi = MINI_TABLES["voter_request_incentives"]
+        pos = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)]
+        assert pos["participation_class"].eq("CORRECT_VOTE").all()
+        neg = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) < 0)]
+        assert neg["participation_class"].isin(["WRONG_VOTE", "DID_NOT_VOTE"]).all()
+
+    def test_commit_layer_nonempty(self):
+        assert len(MINI_TABLES["commits"]) > 0
+        assert len(MINI_TABLES["participation"]) > 0
+        assert len(MINI_TABLES["voter_request_incentives"]) > 0
+
+
 class TestTrackedReleaseArtifacts:
     """Tests on release files that ARE tracked in git (crosswalk + manifest)."""
 
+    @pytest.mark.skipif(
+        not json.load(open(Path(__file__).resolve().parent.parent / "release" / "manifest.json"))
+        .get("sha256", {}).get("crosswalk.parquet"),
+        reason="crosswalk not in manifest (v1.1+)")
     def test_crosswalk_manifest_hash(self):
         import hashlib
         from pmvotes import RELEASE
@@ -171,6 +236,10 @@ class TestTrackedReleaseArtifacts:
         ).hexdigest()
         assert actual == manifest["sha256"]["crosswalk.parquet"]
 
+    @pytest.mark.skipif(
+        not json.load(open(Path(__file__).resolve().parent.parent / "release" / "manifest.json"))
+        .get("sha256", {}).get("crosswalk.parquet"),
+        reason="crosswalk not in manifest (v1.1+)")
     def test_crosswalk_row_count(self):
         from pmvotes import RELEASE
         manifest = json.load(open(RELEASE / "manifest.json"))

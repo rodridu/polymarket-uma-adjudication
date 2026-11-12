@@ -159,3 +159,75 @@ def test_fixture_count(fixture_cases):
     """Verify we have the expected number of fixture cases."""
     assert len(fixture_cases) >= 25, f"Expected >= 25 fixtures, got {len(fixture_cases)}"
     assert len(fixture_cases) <= 35, f"Expected <= 35 fixtures, got {len(fixture_cases)}"
+
+
+# ---------------------------------------------------------------- commit-layer regression
+
+_COMMIT_LAYER_NAMES = ("commits", "participation", "voter_request_incentives")
+_HAS_COMMIT_RELEASE = all(
+    (RELEASE / f"{n}.parquet").exists() for n in _COMMIT_LAYER_NAMES
+) if _PARQUETS_PRESENT else False
+
+_skip_commit = pytest.mark.skipif(
+    not _HAS_COMMIT_RELEASE,
+    reason="commit-layer release parquets not present")
+
+
+@pytest.fixture(scope="module")
+def commit_tables():
+    if not _HAS_COMMIT_RELEASE:
+        pytest.skip("commit-layer release parquets not present")
+    return {n: pd.read_parquet(RELEASE / f"{n}.parquet") for n in _COMMIT_LAYER_NAMES}
+
+
+@_skip_commit
+class TestCommitLayerRegression:
+    """Full C11-C16 on release parquets."""
+
+    def test_c11_commits_pk(self, commit_tables):
+        cm = commit_tables["commits"]
+        assert not cm.duplicated(["dvm_request_id", "round_id", "voter",
+                                   "tx_hash", "log_index"]).any()
+
+    def test_c11_participation_pk(self, commit_tables):
+        pt = commit_tables["participation"]
+        assert not pt.duplicated(["dvm_request_id", "round_id", "voter"]).any()
+
+    def test_c11_incentives_pk(self, commit_tables):
+        vi = commit_tables["voter_request_incentives"]
+        assert not vi.duplicated(["voter", "dvm_request_id"]).any()
+
+    def test_c12_commit_request_exists(self, commit_tables, release_tables):
+        commit_ids = set(commit_tables["commits"]["dvm_request_id"])
+        dvm_ids = set(release_tables["dvm_requests"]["dvm_request_id"])
+        assert commit_ids <= dvm_ids
+
+    def test_c12_incentive_request_exists(self, commit_tables, release_tables):
+        vi_ids = set(commit_tables["voter_request_incentives"]["dvm_request_id"])
+        dvm_ids = set(release_tables["dvm_requests"]["dvm_request_id"])
+        assert vi_ids <= dvm_ids
+
+    def test_c13_reveal_subset_of_commit(self, commit_tables):
+        ballots = pd.read_parquet(RELEASE / "ballots.parquet")
+        cm = commit_tables["commits"]
+        revealed = set(zip(ballots["dvm_request_id"], ballots["round_id"], ballots["voter"]))
+        committed = set(zip(cm["dvm_request_id"], cm["round_id"], cm["voter"]))
+        assert revealed <= committed
+
+    def test_c15_slashed_tokens_integers(self, commit_tables):
+        import re
+        INT_RE = re.compile(r"^-?\d+$")
+        vi = commit_tables["voter_request_incentives"]
+        assert all(INT_RE.match(str(v)) for v in vi["slashed_tokens_raw"])
+
+    def test_participation_booleans(self, commit_tables):
+        pt = commit_tables["participation"]
+        assert pt["committed"].dtype == bool
+        assert pt["revealed"].dtype == bool
+        assert (pt["commit_count"] >= 0).all()
+
+    def test_incentive_classes_valid(self, commit_tables):
+        vi = commit_tables["voter_request_incentives"]
+        valid = {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE"}
+        assert set(vi["participation_class"]) <= valid
+        assert set(vi["incentive_type"]) <= {"REWARD", "PENALTY"}

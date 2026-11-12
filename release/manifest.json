@@ -1,13 +1,16 @@
 {
   "dataset": "polymarket-uma-adjudication",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "build_mode": "CHAIN",
-  "built_utc": "2026-10-04T23:51:00+00:00",
+  "built_utc": "2026-11-12T03:56:44+00:00",
   "rows": {
     "cases": 4264,
     "dvm_requests": 4261,
     "rounds": 467,
-    "ballots": 2053728
+    "ballots": 2053728,
+    "commits": 2145975,
+    "participation": 2123979,
+    "voter_request_incentives": 2960916
   },
   "counts": {
     "cases_by_link_status": {
@@ -36,7 +39,13 @@
       "NONSTANDARD": 68
     },
     "distinct_voter_addresses": 6992,
-    "rounds": 467
+    "rounds": 467,
+    "distinct_commit_voters": 8416,
+    "participation_class_counts": {
+      "CORRECT_VOTE": 1920685,
+      "DID_NOT_VOTE": 972446,
+      "WRONG_VOTE": 67785
+    }
   },
   "coverage": {
     "first_dispute_ts": 1672439560,
@@ -56,38 +65,13 @@
     "last_ethereum_block": 25871302,
     "last_round_id": 10347
   },
-  "audit": {
-    "seed": 20261004,
-    "script_sha256": "090dc527acd9aecd3d6b23804b33c046d8256751bf2c33271e52ec494b50679e",
-    "run_timestamp_utc": "2026-10-05T01:16Z",
-    "rpc_chain_id": 1,
-    "strata": 9,
-    "n_cases_audited": 31,
-    "n_dvm_linked_verified": 28,
-    "n_pre_voting_v2_confirmed": 3,
-    "n_rounds_audited": 40,
-    "n_ballots_spot_checked": 200,
-    "n_field_comparisons": 1800,
-    "n_resolution_events_checked": 28,
-    "fields_per_ballot": ["voter", "caller", "price", "numTokens", "roundId", "block", "identifier", "time", "ancillaryData"],
-    "result": "PASS"
-  },
-  "environment": {
-    "python": "3.13.5",
-    "pandas": "2.2.3",
-    "pyarrow": "23.0.1",
-    "requests": "2.32.3",
-    "pycryptodome": "3.23.0"
-  },
-  "tests": {
-    "regression_suite": "146 passed, 6 expected skips, 0 failures",
-    "skip_reason": "PRE_VOTING_V2 cases have no DVM request (6 parametrized tests skipped as expected)"
-  },
   "sha256": {
     "cases.parquet": "f0b04887412637f3cdf5b47e061c325cf704db16fc4eea46eda49606c367df42",
     "dvm_requests.parquet": "f3f1edd4e01bcd8ff01f198159cf2ad56d2e30c388b9728d17c93f47a7e832f3",
     "rounds.parquet": "dcb352e172bdf19b8e1d33ccd0051719aafe248e3a1789ef74630491907437b6",
     "ballots.parquet": "f0d612b45565987eb2bdcf75c6af2d0ac00fd912c9ddeca076e58c0ad7cc50c6",
-    "crosswalk.parquet": "5857e0d08d3c7efb62ede1cabf6546b6adec041f5a6d893cf3a9c4c854fd36ab"
+    "commits.parquet": "5e9c5b625ad4b97ab11254c0fc313004658a66a3215bff14a6da13eb92f57392",
+    "participation.parquet": "4aea369a968481a648caf6376cc3b101bc1202b8e2f297676a287c51bccd7f67",
+    "voter_request_incentives.parquet": "721208ba9f0d00ba81944b8201f6a464068f90406c0d1752b606e45947ef79d5"
   }
 }

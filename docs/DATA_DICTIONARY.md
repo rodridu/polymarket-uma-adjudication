@@ -68,6 +68,45 @@ seconds. Addresses are lowercase hex.
 | is_resolution_round | linkage | ballot cast in the round that resolved the request |
 | block_number, block_timestamp, tx_hash, log_index | raw | event provenance |
 
+## commits.parquet — one row per VoteCommitted event for a linked request (v1.1)
+
+| column | class | meaning |
+|---|---|---|
+| dvm_request_id, round_id | raw | request and round of the commit |
+| condition_id | linkage | Polymarket condition |
+| voter, caller | raw | commit author (delegators via `caller`); same address semantics as ballots |
+| block_number, block_timestamp, tx_hash, log_index | raw | event provenance |
+
+Multiple rows per (request, round, voter) are possible: VotingV2 allows re-commits during the
+commit phase. PK: (dvm_request_id, round_id, voter, tx_hash, log_index).
+
+## participation.parquet — one row per (request, round, voter) (v1.1)
+
+| column | class | meaning |
+|---|---|---|
+| dvm_request_id, round_id, voter | raw | participation key |
+| committed | linkage | has ≥1 VoteCommitted event in this round |
+| revealed | linkage | has a VoteRevealed event in this round (appears in ballots) |
+| commit_count | linkage | number of VoteCommitted events (re-commits) |
+
+Built by outer-joining unique (request, round, voter) tuples from commits and ballots.
+PK: (dvm_request_id, round_id, voter).
+
+## voter_request_incentives.parquet — one row per (voter, request) from VoterSlashed (v1.1)
+
+| column | class | meaning |
+|---|---|---|
+| dvm_request_id | linkage | DVM request (mapped from `requestIndex` via receipt decoding) |
+| voter | raw | VoterSlashed indexed address |
+| slashed_tokens_raw | raw | int128 as decimal string; positive = reward, negative = penalty |
+| incentive_type | interp | `REWARD` (positive) or `PENALTY` (negative or zero) |
+| participation_class | interp | `CORRECT_VOTE`, `WRONG_VOTE`, or `DID_NOT_VOTE` |
+| request_index | raw | `resolvedPriceRequestIndex` from RequestResolved |
+| block_number, tx_hash, log_index | raw | event provenance |
+
+`participation_class` derivation: positive tokens → CORRECT_VOTE; non-positive + has reveal →
+WRONG_VOTE; non-positive + no reveal → DID_NOT_VOTE. PK: (voter, dvm_request_id).
+
 ## Value classes (`pmvotes/semantics.py`)
 
 | price_raw | uma_value_class | ctf_payout | adapter_effect |

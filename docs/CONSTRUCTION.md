@@ -8,14 +8,25 @@
 02_pull_dvm_requests     UMA voting subgraph → every YES_OR_NO_QUERY DVM request
 03_link_oo_to_dvm        exact OO → DVM link (time equality + ancillary prefix or stamped hash)
 04_pull_votes            VotingV2 VoteRevealed + RequestResolved logs, every round of each request
+04b_pull_commits         VoteCommitted logs, per-request identifier-topic-filtered (v1.1)
+04c_pull_slashing        VoterSlashed via resolution tx receipts (v1.1)
 05_pull_round_state      VotingV2 rounds(id) for each round with a ballot
-06_build_release         four tables + manifest.json
-07_validate_release      fixed checklist C1–C10; release only on all PASS
+06_build_release         seven tables + manifest.json (four v1.0, three v1.1 commit-layer)
+07_validate_release      fixed checklist C1–C16; release only on all PASS
 ```
 
 Inputs to 01 are OO request-universe parquets in UMA OO subgraph schema, one per oracle
 contract. They are pulled once and recorded with their sha256 in the release notes. 01 itself does
 not pull them.
+
+04b mirrors 04's architecture: per-request, identifier-topic-filtered, checkpoint-resumable.
+`VoteCommitted` has the same indexed identifier as `VoteRevealed`, so the same topic filter works.
+Multiple commits per (request, round, voter) are kept (re-commits allowed by VotingV2).
+
+04c uses a receipt-based approach because `VoterSlashed` lacks an identifier topic.
+Resolution txs are batch operations (459 unique txs for 4,261+ resolved requests), so fetching
+receipts is efficient. Each receipt's `RequestResolved` logs provide the
+`resolvedPriceRequestIndex → dvm_request_id` mapping; `VoterSlashed` logs reference that index.
 
 ## Why the link is exact
 
@@ -33,8 +44,9 @@ as rows, never collapsed.
 
 ## Known limitations
 
-- **Revealed ballots only.** Commits (`VoteCommitted`) are not in v1. They carry no direction or
-  weight; they add non-revealer behaviour and the commit→reveal funnel (planned v1.1).
+- **Commit layer (v1.1).** `VoteCommitted` events and `VoterSlashed` incentives were added in v1.1.
+  Commits carry no direction or weight (encrypted). `participation_class` in
+  `voter_request_incentives` uses request-level reveal status, not resolution-round-specific.
 - **Address ≠ person.** One entity can use many addresses; delegation routes votes through
   `caller`.
 - **Pre-VotingV2 disputes** (before round 9715, 2023-03-14). 3 cases predate VotingV2 and therefore

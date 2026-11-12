@@ -12,6 +12,14 @@
         request has an on-chain RequestResolved; no RESOLVED_PRICE_MISSING)
     C10 manifest reproduces (row counts, sha256)
 
+    v1.1 commit-layer checks (run only when commit-layer tables are present):
+    C11 commit-layer primary keys unique
+    C12 referential integrity: commit->request, participation->round, incentive->request
+    C13 reveal ⊆ commit: every revealed ballot has ≥1 commit in that round
+    C14 incentive sign consistency: positive tokens = CORRECT_VOTE only
+    C15 raw integers: slashed_tokens_raw exact decimal strings
+    C16 incentive coverage: every RESOLVED request has ≥1 VoterSlashed event
+
 Coverage (link / resolution status) is reported, not graded.
 
     python scripts/07_validate_release.py
@@ -34,6 +42,11 @@ def main() -> int:
          for k in ("cases", "dvm_requests", "rounds", "ballots")}
     c, q, r, b = T["cases"], T["dvm_requests"], T["rounds"], T["ballots"]
     M = json.loads((RELEASE / "manifest.json").read_text())
+    commit_tables = ("commits", "participation", "voter_request_incentives")
+    has_commit_layer = all(k in M.get("rows", {}) for k in commit_tables)
+    if has_commit_layer:
+        for k in commit_tables:
+            T[k] = pd.read_parquet(RELEASE / f"{k}.parquet")
     res = []
 
     def check(cid, name, ok, detail=""):
@@ -125,6 +138,66 @@ def main() -> int:
                  for f, h in M["sha256"].items())
     check("C10", "manifest reproduces", rows_ok and sha_ok, f"rows {rows_ok}, sha256 {sha_ok}")
 
+    # ---------------------------------------------------------------- commit-layer checks
+    if has_commit_layer:
+        cm, pt, vi = T["commits"], T["participation"], T["voter_request_incentives"]
+
+        # C11
+        d11 = {"commits": cm.duplicated(["dvm_request_id", "round_id", "voter",
+                                          "tx_hash", "log_index"]).sum(),
+               "participation": pt.duplicated(["dvm_request_id", "round_id", "voter"]).sum(),
+               "incentives": vi.duplicated(["voter", "dvm_request_id"]).sum()}
+        check("C11", "commit-layer PKs unique", sum(d11.values()) == 0,
+              str({k: int(v) for k, v in d11.items()}))
+
+        # C12
+        orphan_cm = (~cm["dvm_request_id"].isin(q["dvm_request_id"])).sum()
+        orphan_pt_r = (~pt["round_id"].isin(r["round_id"])).sum()
+        orphan_vi = (~vi["dvm_request_id"].isin(q["dvm_request_id"])).sum()
+        check("C12", "commit-layer referential integrity",
+              orphan_cm + orphan_pt_r + orphan_vi == 0,
+              f"commit->req {orphan_cm}, part->round {orphan_pt_r}, incent->req {orphan_vi}")
+
+        # C13
+        revealed = set(zip(b["dvm_request_id"], b["round_id"], b["voter"]))
+        committed = set(zip(cm["dvm_request_id"], cm["round_id"], cm["voter"]))
+        reveal_no_commit = revealed - committed
+        check("C13", "reveal subset of commit", len(reveal_no_commit) == 0,
+              f"{len(reveal_no_commit)} revealed without commit")
+
+        # C14 — cross-check: CORRECT_VOTE voters revealed the resolved price
+        resolved_prices = q.loc[q["resolution_status"].eq("RESOLVED"),
+                                ["dvm_request_id", "resolved_price_raw", "resolution_round"]].dropna()
+        rp = resolved_prices.set_index("dvm_request_id")
+        correct = vi[vi["participation_class"].eq("CORRECT_VOTE")]
+        if len(correct) and len(rp):
+            merged = correct.merge(rp, on="dvm_request_id", how="inner")
+            merged = merged.merge(b[["dvm_request_id", "round_id", "voter", "price_raw"]],
+                                  on=["dvm_request_id", "voter"], how="inner")
+            res_round_ballots = merged[merged["round_id"].eq(merged["resolution_round"])]
+            price_mismatch = (res_round_ballots["price_raw"] != res_round_ballots["resolved_price_raw"]).sum()
+        else:
+            price_mismatch = 0
+        pos_wrong = (~vi.loc[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0),
+                             "participation_class"].eq("CORRECT_VOTE")).sum()
+        check("C14", "incentive sign + price consistency",
+              pos_wrong + price_mismatch == 0,
+              f"positive-but-not-correct {pos_wrong}, correct-but-wrong-price {price_mismatch}")
+
+        # C15
+        raw_bad = (~vi["slashed_tokens_raw"].astype(str).str.match(INT_RE)).sum()
+        check("C15", "slashed_tokens_raw exact integers", raw_bad == 0,
+              f"{raw_bad} non-integer values")
+
+        # C16 — only resolved requests with ballots (NO_REVEALS may lack slashing)
+        resolved_with_ballots = set(q.loc[q["resolution_status"].eq("RESOLVED")
+                                          & q["ballot_status"].eq("OK"), "dvm_request_id"])
+        covered = set(vi["dvm_request_id"])
+        uncovered = resolved_with_ballots - covered
+        check("C16", "incentive coverage for resolved requests", len(uncovered) == 0,
+              f"{len(resolved_with_ballots) - len(uncovered)}/{len(resolved_with_ballots)} "
+              f"resolved-with-ballots have incentives")
+
     print(f"release {M['version']}  build_mode {M['build_mode']}\n")
     for cid, name, ok, det in res:
         print(f"[{'PASS' if ok else 'FAIL'}] {cid:<4} {name:<42} {det}")
@@ -132,6 +205,11 @@ def main() -> int:
     print("  cases by link status   ", c["dvm_link_status"].value_counts().to_dict())
     print("  requests by resolution ", q["resolution_status"].value_counts().to_dict())
     print("  requests by ballots    ", q["ballot_status"].value_counts().to_dict())
+    if has_commit_layer:
+        print("  participation classes   ", T["voter_request_incentives"]["participation_class"]
+              .value_counts().to_dict())
+        print(f"  commits {len(T['commits']):,}  participation rows {len(T['participation']):,}  "
+              f"incentive rows {len(T['voter_request_incentives']):,}")
     n_fail = sum(not ok for *_, ok, _ in res)
     print(f"\n{'RELEASE OK' if n_fail == 0 else f'NOT RELEASABLE: {n_fail} check(s) failed'}")
     return 0 if n_fail == 0 else 1
