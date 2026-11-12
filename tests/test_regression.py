@@ -218,7 +218,8 @@ class TestCommitLayerRegression:
         import re
         INT_RE = re.compile(r"^-?\d+$")
         vi = commit_tables["voter_request_incentives"]
-        assert all(INT_RE.match(str(v)) for v in vi["slashed_tokens_raw"])
+        vals = vi["slashed_tokens_raw"].dropna()
+        assert all(INT_RE.match(str(v)) for v in vals)
 
     def test_participation_booleans(self, commit_tables):
         pt = commit_tables["participation"]
@@ -230,7 +231,9 @@ class TestCommitLayerRegression:
         vi = commit_tables["voter_request_incentives"]
         valid_pc = {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE", "UNKNOWN"}
         assert set(vi["participation_class"]) <= valid_pc
-        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
+        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE", "NOT_OBSERVED"}
         assert set(vi["reward_class"]) <= valid_rc
-        pos = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)]
+        has_tokens = vi["slashed_tokens_raw"].notna()
+        pos = vi[has_tokens & vi["slashed_tokens_raw"].map(
+            lambda s: int(s) > 0 if pd.notna(s) else False)]
         assert pos["participation_class"].eq("CORRECT_VOTE").all()

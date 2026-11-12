@@ -196,18 +196,21 @@ def main() -> int:
         else:
             wrong_correct_price = 0
         # (d) reward_class valid
-        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
+        valid_rc = {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE", "NOT_OBSERVED"}
         rc_ok = set(vi["reward_class"]) <= valid_rc
-        # (e) positive reward implies CORRECT_VOTE
-        pos_tokens = vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)
+        # (e) positive reward implies CORRECT_VOTE (skip NOT_OBSERVED rows)
+        has_tokens = vi["slashed_tokens_raw"].notna()
+        pos_tokens = has_tokens & vi.loc[has_tokens, "slashed_tokens_raw"].map(
+            lambda s: int(s) > 0).reindex(vi.index, fill_value=False)
         pos_not_correct = (pos_tokens & ~vi["participation_class"].eq("CORRECT_VOTE")).sum()
         c14_ok = (correct_wrong_price + wrong_correct_price + pos_not_correct == 0) and rc_ok
         check("C14", "orthogonal classification consistency", c14_ok,
               f"correct-wrong-price {correct_wrong_price}, wrong-correct-price {wrong_correct_price}, "
               f"pos-not-correct {pos_not_correct}, reward_class valid {rc_ok}")
 
-        # C15
-        raw_bad = (~vi["slashed_tokens_raw"].astype(str).str.match(INT_RE)).sum()
+        # C15 (NOT_OBSERVED rows have null slashed_tokens_raw — skip them)
+        st_present = vi["slashed_tokens_raw"].dropna()
+        raw_bad = (~st_present.astype(str).str.match(INT_RE)).sum()
         check("C15", "slashed_tokens_raw exact integers", raw_bad == 0,
               f"{raw_bad} non-integer values")
 

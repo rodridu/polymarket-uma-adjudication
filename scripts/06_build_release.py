@@ -9,7 +9,7 @@
     v1.1 tables (built when commit-layer raw files are present):
     commits.parquet                   one row per VoteCommitted event
     participation.parquet             one row per (request, round, voter)
-    voter_request_incentives.parquet  one row per (voter, request) from VoterSlashed
+    voter_request_incentives.parquet  one row per (voter, request) with VoterSlashed or res-round ballot
 
 No row is dropped for being inconvenient: every case stays, with dvm_link_status; every linked
 request stays, with resolution_status and ballot_status. Raw integers are decimal strings.
@@ -200,38 +200,63 @@ def main() -> int:
             .sort_values(["dvm_request_id", "round_id", "voter"]).reset_index(drop=True)
 
         # ------------------------------------------------------------ voter_request_incentives (v1.1)
-        vs_linked = vs[vs["dvm_request_id"].isin(linked["dvm_request_id"])].copy()
-
-        # reward_class: economic outcome from slashing sign only
-        tokens_int = vs_linked["slashed_tokens_raw"].map(lambda s: int(s))
-        vs_linked["reward_class"] = np.where(
-            tokens_int > 0, "POSITIVE_REWARD",
-            np.where(tokens_int < 0, "NEGATIVE_SLASH", "ZERO_CHANGE"))
-
-        # participation_class: behavioral classification by price comparison
-        # Build resolution-round revealed prices per (request, voter)
+        # Resolution-round revealed prices per (request, voter)
         res_round_map = req.set_index("dvm_request_id")["resolution_round"].to_dict()
         resolved_map = req.set_index("dvm_request_id")["resolved_price_raw"].to_dict()
         ballots_copy = ballots.copy()
         ballots_copy["_res_round"] = ballots_copy["dvm_request_id"].map(res_round_map)
         res_ballots = ballots_copy[ballots_copy["round_id"] == ballots_copy["_res_round"]]
-        res_reveal = res_ballots.groupby(["dvm_request_id", "voter"])["price_raw"].first().reset_index()
+        res_reveal = res_ballots.groupby(["dvm_request_id", "voter"])["price_raw"] \
+            .first().reset_index()
         res_reveal.columns = ["dvm_request_id", "voter", "_revealed_price"]
 
+        # --- VoterSlashed rows: reward_class from sign, participation_class from price ---
+        vs_linked = vs[vs["dvm_request_id"].isin(linked["dvm_request_id"])].copy()
+        tokens_int = vs_linked["slashed_tokens_raw"].map(lambda s: int(s))
+        vs_linked["reward_class"] = np.where(
+            tokens_int > 0, "POSITIVE_REWARD",
+            np.where(tokens_int < 0, "NEGATIVE_SLASH", "ZERO_CHANGE"))
         vs_linked = vs_linked.merge(res_reveal, on=["dvm_request_id", "voter"], how="left")
         vs_linked["_resolved"] = vs_linked["dvm_request_id"].map(resolved_map)
         has_reveal = vs_linked["_revealed_price"].notna()
-        voted_correct = has_reveal & (vs_linked["_revealed_price"].astype(str) == vs_linked["_resolved"].astype(str))
-        voted_wrong = has_reveal & (vs_linked["_revealed_price"].astype(str) != vs_linked["_resolved"].astype(str))
+        can_compare = has_reveal & vs_linked["_resolved"].notna()
+        voted_correct = can_compare & (vs_linked["_revealed_price"].astype(str)
+                                       == vs_linked["_resolved"].astype(str))
+        voted_wrong = can_compare & ~voted_correct
         vs_linked["participation_class"] = np.where(
             voted_correct, "CORRECT_VOTE",
             np.where(voted_wrong, "WRONG_VOTE",
                      np.where(~has_reveal, "DID_NOT_VOTE", "UNKNOWN")))
+        vs_out = vs_linked[["dvm_request_id", "voter", "slashed_tokens_raw",
+                            "reward_class", "participation_class", "request_index",
+                            "block_number", "tx_hash", "log_index"]]
 
-        incentives = vs_linked[["dvm_request_id", "voter", "slashed_tokens_raw",
-                                "reward_class", "participation_class", "request_index",
-                                "block_number", "tx_hash", "log_index"]] \
+        # --- Ballot-only rows: resolution-round reveal without VoterSlashed ---
+        vs_keys = vs_linked[["dvm_request_id", "voter"]].drop_duplicates()
+        vs_keys["_in_vs"] = True
+        ballot_only = res_reveal.merge(vs_keys, on=["dvm_request_id", "voter"],
+                                       how="left")
+        ballot_only = ballot_only[ballot_only["_in_vs"].isna()] \
+            .drop(columns=["_in_vs"])
+        ballot_only = ballot_only[
+            ballot_only["dvm_request_id"].isin(linked["dvm_request_id"])]
+        ballot_only["_resolved"] = ballot_only["dvm_request_id"].map(resolved_map)
+        bo_can = ballot_only["_resolved"].notna()
+        bo_correct = bo_can & (ballot_only["_revealed_price"].astype(str)
+                               == ballot_only["_resolved"].astype(str))
+        ballot_only["participation_class"] = np.where(
+            bo_correct, "CORRECT_VOTE",
+            np.where(bo_can & ~bo_correct, "WRONG_VOTE", "UNKNOWN"))
+        ballot_only["reward_class"] = "NOT_OBSERVED"
+        for col in ("slashed_tokens_raw", "request_index",
+                    "block_number", "tx_hash", "log_index"):
+            ballot_only[col] = pd.NA
+        ballot_only = ballot_only[vs_out.columns]
+
+        incentives = pd.concat([vs_out, ballot_only], ignore_index=True) \
             .sort_values(["dvm_request_id", "voter"]).reset_index(drop=True)
+        for col in ("request_index", "block_number", "log_index"):
+            incentives[col] = incentives[col].astype("Int64")
 
     # ---------------------------------------------------------------- write
     RELEASE.mkdir(parents=True, exist_ok=True)

@@ -92,27 +92,36 @@ commit phase. PK: (dvm_request_id, round_id, voter, tx_hash, log_index).
 Built by outer-joining unique (request, round, voter) tuples from commits and ballots.
 PK: (dvm_request_id, round_id, voter).
 
-## voter_request_incentives.parquet — one row per (voter, request) from VoterSlashed (v1.1)
+## voter_request_incentives.parquet — one row per (voter, request) with VoterSlashed or res-round ballot (v1.1)
 
 | column | class | meaning |
 |---|---|---|
 | dvm_request_id | linkage | DVM request (mapped from `requestIndex` via receipt decoding) |
 | voter | raw | VoterSlashed indexed address |
 | slashed_tokens_raw | raw | int128 as decimal string; positive = reward, negative = penalty |
-| reward_class | interp | economic outcome: `POSITIVE_REWARD`, `NEGATIVE_SLASH`, or `ZERO_CHANGE` |
+| reward_class | interp | economic outcome: `POSITIVE_REWARD`, `NEGATIVE_SLASH`, `ZERO_CHANGE`, or `NOT_OBSERVED` |
 | participation_class | interp | voting behavior: `CORRECT_VOTE`, `WRONG_VOTE`, `DID_NOT_VOTE`, or `UNKNOWN` |
 | request_index | raw | `resolvedPriceRequestIndex` from RequestResolved |
 | block_number, tx_hash, log_index | raw | event provenance |
 
 `participation_class` (v1.1.1+) is derived by comparing the voter's revealed price in the
 resolution round to the request's resolved price — independent of slashing amount.
-`reward_class` reflects the economic outcome from the VoterSlashed event sign only.
-These are orthogonal: a correct voter can receive ZERO_CHANGE (no penalty pool to redistribute),
-and a wrong voter can have ZERO_CHANGE (escaped penalty). PK: (voter, dvm_request_id).
+`DID_NOT_VOTE` requires a VoterSlashed record (evidence of slashing-accounting coverage,
+not a full eligibility proof — actual eligibility depends on per-round stake snapshot and
+contract rules) with no resolution-round reveal. `UNKNOWN` is the fallback when neither
+VoterSlashed nor a resolution-round ballot exists for the voter.
+`reward_class` reflects the economic outcome from the VoterSlashed event sign only;
+`NOT_OBSERVED` marks voters with a resolution-round ballot but no VoterSlashed event
+(lazy `updateTrackers()` not yet triggered). These columns are orthogonal: a correct voter
+can receive ZERO_CHANGE (no penalty pool), a wrong voter can have ZERO_CHANGE (escaped
+penalty), and a ballot-only voter has NOT_OBSERVED regardless of vote correctness.
+Rows with `NOT_OBSERVED` have null `slashed_tokens_raw` and null provenance fields.
+PK: (voter, dvm_request_id).
 
 **v1.1.0 bug (fixed in v1.1.1):** `participation_class` was derived from slashing sign
 (`slashed_tokens ≤ 0` → WRONG_VOTE/DID_NOT_VOTE), misclassifying 2,345 zero-token correct
-voters as WRONG_VOTE. The column `incentive_type` was replaced by `reward_class`.
+voters as WRONG_VOTE. The column `incentive_type` (REWARD/PENALTY, a strict coarsening of
+slashing sign with no additional contract information) was replaced by `reward_class`.
 
 ## Value classes (`pmvotes/semantics.py`)
 

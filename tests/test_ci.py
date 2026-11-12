@@ -210,8 +210,10 @@ class TestCommitLayerMiniFixtures:
     def test_orthogonal_classification(self):
         vi = MINI_TABLES["voter_request_incentives"]
         assert set(vi["participation_class"]) <= {"CORRECT_VOTE", "WRONG_VOTE", "DID_NOT_VOTE", "UNKNOWN"}
-        assert set(vi["reward_class"]) <= {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE"}
-        pos = vi[vi["slashed_tokens_raw"].map(lambda s: int(s) > 0)]
+        assert set(vi["reward_class"]) <= {"POSITIVE_REWARD", "NEGATIVE_SLASH", "ZERO_CHANGE", "NOT_OBSERVED"}
+        has_tokens = vi["slashed_tokens_raw"].notna()
+        pos = vi[has_tokens & vi["slashed_tokens_raw"].map(
+            lambda s: int(s) > 0 if pd.notna(s) else False)]
         assert pos["participation_class"].eq("CORRECT_VOTE").all()
         assert pos["reward_class"].eq("POSITIVE_REWARD").all()
 
@@ -219,6 +221,71 @@ class TestCommitLayerMiniFixtures:
         assert len(MINI_TABLES["commits"]) > 0
         assert len(MINI_TABLES["participation"]) > 0
         assert len(MINI_TABLES["voter_request_incentives"]) > 0
+
+
+class TestClassificationEdgeCases:
+    """Synthetic edge cases: classification must handle all boundary conditions."""
+
+    def test_four_boundary_records(self):
+        import numpy as np
+
+        REQ_ID, RES_ROUND = "TEST_REQ", 100
+        RESOLVED_PRICE, WRONG_PRICE = "1000000000000000000", "0"
+
+        vs = pd.DataFrame({
+            "dvm_request_id": [REQ_ID] * 3,
+            "voter": ["0xCorrectZero", "0xWrongZero", "0xDidNotVote"],
+            "slashed_tokens_raw": ["0", "0", "0"],
+        })
+        res_reveal = pd.DataFrame({
+            "dvm_request_id": [REQ_ID] * 3,
+            "voter": ["0xCorrectZero", "0xWrongZero", "0xBallotOnly"],
+            "_revealed_price": [RESOLVED_PRICE, WRONG_PRICE, WRONG_PRICE],
+        })
+        resolved_map = {REQ_ID: RESOLVED_PRICE}
+
+        # VoterSlashed classification
+        tokens_int = vs["slashed_tokens_raw"].map(lambda s: int(s))
+        vs["reward_class"] = np.where(
+            tokens_int > 0, "POSITIVE_REWARD",
+            np.where(tokens_int < 0, "NEGATIVE_SLASH", "ZERO_CHANGE"))
+        vs = vs.merge(res_reveal, on=["dvm_request_id", "voter"], how="left")
+        vs["_resolved"] = vs["dvm_request_id"].map(resolved_map)
+        has_reveal = vs["_revealed_price"].notna()
+        can_compare = has_reveal & vs["_resolved"].notna()
+        voted_correct = can_compare & (vs["_revealed_price"].astype(str)
+                                       == vs["_resolved"].astype(str))
+        voted_wrong = can_compare & ~voted_correct
+        vs["participation_class"] = np.where(
+            voted_correct, "CORRECT_VOTE",
+            np.where(voted_wrong, "WRONG_VOTE",
+                     np.where(~has_reveal, "DID_NOT_VOTE", "UNKNOWN")))
+
+        # Ballot-only classification
+        vs_keys = set(zip(vs["dvm_request_id"], vs["voter"]))
+        bo = res_reveal[[
+            (r, v) not in vs_keys
+            for r, v in zip(res_reveal["dvm_request_id"], res_reveal["voter"])
+        ]].copy()
+        bo["_resolved"] = bo["dvm_request_id"].map(resolved_map)
+        bo_correct = bo["_revealed_price"].astype(str) == bo["_resolved"].astype(str)
+        bo["participation_class"] = np.where(bo_correct, "CORRECT_VOTE", "WRONG_VOTE")
+        bo["reward_class"] = "NOT_OBSERVED"
+
+        idx = vs.set_index("voter")
+        # Case 1: correct vote + zero slashing
+        assert idx.loc["0xCorrectZero", "participation_class"] == "CORRECT_VOTE"
+        assert idx.loc["0xCorrectZero", "reward_class"] == "ZERO_CHANGE"
+        # Case 2: wrong vote + zero slashing
+        assert idx.loc["0xWrongZero", "participation_class"] == "WRONG_VOTE"
+        assert idx.loc["0xWrongZero", "reward_class"] == "ZERO_CHANGE"
+        # Case 3: wrong vote + no VoterSlashed event
+        bo_idx = bo.set_index("voter")
+        assert bo_idx.loc["0xBallotOnly", "participation_class"] == "WRONG_VOTE"
+        assert bo_idx.loc["0xBallotOnly", "reward_class"] == "NOT_OBSERVED"
+        # Case 4: no reveal + VoterSlashed (eligibility confirmed)
+        assert idx.loc["0xDidNotVote", "participation_class"] == "DID_NOT_VOTE"
+        assert idx.loc["0xDidNotVote", "reward_class"] == "ZERO_CHANGE"
 
 
 class TestTrackedReleaseArtifacts:
