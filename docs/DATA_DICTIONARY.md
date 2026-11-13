@@ -23,6 +23,8 @@ seconds. Addresses are lowercase hex.
 | proposed_uma_value_class | interp | see value classes |
 | disputer, dispute_timestamp, dispute_tx | raw | the dispute |
 | bond_raw | raw | proposer bond (collateral base units) |
+| oo_settlement_timestamp | raw | Unix timestamp of the observed settlement of the OO request represented by this case. Not the CTF condition resolution time. Null when no settlement is observed in the source data. |
+| oo_settlement_price_raw | raw | Raw int256 price reported for that OO request's settlement, stored as a decimal string. Null when no settlement is observed. |
 | dvm_link_status | linkage | `DVM_EXACT`, `PRE_VOTING_V2`, `DVM_NOT_FOUND`, `DVM_MULTIPLE_CANDIDATES` |
 | dvm_link_format | linkage | `FULL` (DVM ancillary carries OO ancillary) or `HASH` (carries its stamped hash) |
 | dvm_request_id | linkage | key into dvm_requests |
@@ -38,6 +40,7 @@ seconds. Addresses are lowercase hex.
 | first_round | protocol | latest_round − roll_count |
 | resolution_status | interp | `RESOLVED`, `RESOLVED_PRICE_MISSING`, `UNRESOLVED_AT_SOURCE`, `STATUS_UNKNOWN` |
 | resolution_round, resolved_price_raw, resolution_tx | raw | from VotingV2 `RequestResolved` |
+| dvm_resolution_timestamp | raw | Ethereum block timestamp of the matched VotingV2 `RequestResolved` event |
 | resolved_uma_value_class, resolved_ctf_payout, resolved_adapter_effect | interp | see value classes |
 | resolution_source | linkage | `VotingV2.RequestResolved` (or `LEGACY_SNAPSHOT` in preview builds) |
 | ballot_status | interp | `OK` or `NO_REVEALS` |
@@ -140,3 +143,16 @@ slashing sign with no additional contract information) was replaced by `reward_c
 UMA layer: YES_OR_NO_QUERY defaults (p1–p4). Adapter layer: `UmaCtfAdapter._constructPayouts` /
 `_ignorePrice`. Payout slot 0 is whatever outcome the market lists first (often "Yes", sometimes a
 team); read `ancillary_text` for the labels. Never read `P2` as "YES" without checking.
+
+## Settlement timestamp semantics (v1.2.0)
+
+v1.2.0 adds settlement information for DVM-linked OO requests. These fields describe OO
+request-level settlement, not the CTF condition's final payout timestamp.
+
+- `oo_settlement_timestamp` records when a specific Optimistic Oracle request settled on Polygon.
+  For disputed requests that go to DVM, this is when the DVM result was relayed back to the OO.
+  In many cases the CTF condition was already resolved (via the adapter's reset/re-request
+  mechanism) before the OO request settled; the two events are not simultaneous.
+- `dvm_resolution_timestamp` records when VotingV2 emitted `RequestResolved` on Ethereum mainnet.
+- `ctf_resolution_timestamp` (the time when the CTF condition became redeemable) is a separate,
+  deferred field not included in this release.

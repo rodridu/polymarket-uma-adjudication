@@ -13,8 +13,11 @@ module never calls 1e18 "YES". It is "p2 -> payout [1,0]".
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 E18 = 10 ** 18
 INT256_MIN = -(2 ** 255)
+USDC_DECIMALS = 6
 
 # raw price -> (uma_value_class, ctf_payout, adapter_effect)
 _KNOWN = {
@@ -28,6 +31,15 @@ _KNOWN = {
 def signed256(u: int) -> int:
     """uint256 word -> int256."""
     return u - 2 ** 256 if u >= 2 ** 255 else u
+
+
+def usdc_amount(raw: int) -> Decimal:
+    """Raw USDC ERC-20 integer (6 decimals) → exact Decimal. Never use float."""
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise TypeError(f"expected int, got {type(raw).__name__}")
+    if raw < 0:
+        raise ValueError(f"USDC amount cannot be negative: {raw}")
+    return Decimal(raw) / Decimal(10 ** USDC_DECIMALS)
 
 
 def classify(price_raw: int | str) -> tuple[str, str | None, str]:

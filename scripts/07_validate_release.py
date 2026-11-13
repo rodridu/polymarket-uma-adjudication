@@ -223,6 +223,56 @@ def main() -> int:
               f"{len(resolved_with_ballots) - len(uncovered)}/{len(resolved_with_ballots)} "
               f"resolved-with-ballots have incentives")
 
+    # ---------------------------------------------------------------- settlement timestamp checks
+    has_settle = "oo_settlement_timestamp" in c.columns
+    if has_settle:
+        s_ts = c["oo_settlement_timestamp"]
+        s_pr = c["oo_settlement_price_raw"]
+        # C17 — settlement pair completeness
+        pair_mismatch = (s_ts.isna() != s_pr.isna()).sum()
+        s_pr_bad = (~s_pr.dropna().astype(str).str.match(INT_RE)).sum()
+        check("C17", "settlement pair completeness",
+              pair_mismatch == 0 and s_pr_bad == 0,
+              f"null mismatch {pair_mismatch}, non-integer prices {s_pr_bad}")
+
+        # C18 — settlement timestamp sanity
+        settled_mask = s_ts.notna()
+        s_ts_num = pd.to_numeric(s_ts[settled_mask])
+        d_ts_num = pd.to_numeric(c.loc[settled_mask, "dispute_timestamp"])
+        lo = int(M["coverage"]["first_dispute_ts"])
+        hi = int(M["coverage"]["last_ballot_ts"])
+        out_of_range = ((s_ts_num < lo) | (s_ts_num > hi)).sum()
+        d_ts_valid = d_ts_num.notna()
+        before_dispute = (s_ts_num[d_ts_valid] < d_ts_num[d_ts_valid]).sum()
+        d_ts_missing = (~d_ts_valid).sum()
+        check("C18", "settlement timestamp sanity",
+              out_of_range == 0 and before_dispute == 0 and d_ts_missing == 0,
+              f"out-of-range {out_of_range}, before-dispute {before_dispute}, "
+              f"missing-dispute-ts {d_ts_missing}")
+
+    has_dvm_ts = "dvm_resolution_timestamp" in q.columns
+    if has_dvm_ts:
+        # C19a — all RESOLVED have dvm_resolution_timestamp
+        resolved = q[q["resolution_status"].eq("RESOLVED")]
+        missing_ts = resolved["dvm_resolution_timestamp"].isna().sum()
+        check("C19a", "DVM resolution timestamp coverage",
+              missing_ts == 0, f"{len(resolved) - missing_ts}/{len(resolved)} resolved have ts")
+
+        # C19b — dvm_resolution_timestamp ≥ max ballot block_timestamp
+        resolved_with_ballots = resolved[resolved["ballot_status"].eq("OK")]
+        max_bt = b.groupby("dvm_request_id")["block_timestamp"].max()
+        merged = resolved_with_ballots.set_index("dvm_request_id")
+        merged = merged.join(max_bt.rename("max_ballot_ts"), how="inner")
+        bt_missing = merged["max_ballot_ts"].isna().sum()
+        if bt_missing:
+            print(f"  WARNING: {bt_missing} resolved requests with ballots lack ballot block_timestamp")
+        valid = merged.dropna(subset=["max_ballot_ts", "dvm_resolution_timestamp"])
+        before_ballot = (valid["dvm_resolution_timestamp"] < valid["max_ballot_ts"]).sum()
+        check("C19b", "DVM ts >= max ballot ts",
+              before_ballot == 0 and bt_missing == 0,
+              f"before-ballot {before_ballot}, missing-ballot-ts {bt_missing}, "
+              f"checked {len(valid)}")
+
     print(f"release {M['version']}  build_mode {M['build_mode']}\n")
     for cid, name, ok, det in res:
         print(f"[{'PASS' if ok else 'FAIL'}] {cid:<4} {name:<42} {det}")
@@ -230,6 +280,13 @@ def main() -> int:
     print("  cases by link status   ", c["dvm_link_status"].value_counts().to_dict())
     print("  requests by resolution ", q["resolution_status"].value_counts().to_dict())
     print("  requests by ballots    ", q["ballot_status"].value_counts().to_dict())
+    if has_settle:
+        n_settled = int(c["oo_settlement_timestamp"].notna().sum())
+        n_unsettled = int(c["oo_settlement_timestamp"].isna().sum())
+        n_settled_pre_v2 = int(c.loc[c["oo_settlement_timestamp"].notna()
+                                     & c["dvm_link_status"].ne("DVM_EXACT")].shape[0])
+        print(f"  OO settlement          settled {n_settled}, unsettled {n_unsettled}"
+              f" (settled non-DVM_EXACT: {n_settled_pre_v2})")
     if has_commit_layer:
         print("  participation classes   ", T["voter_request_incentives"]["participation_class"]
               .value_counts().to_dict())

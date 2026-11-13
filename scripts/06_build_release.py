@@ -30,7 +30,7 @@ from pmvotes import RAW, RELEASE
 from pmvotes.chain import ROUND_SECONDS, VOTING_V2
 from pmvotes.semantics import classify
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 
 
 def _cls(series: pd.Series, prefix: str) -> pd.DataFrame:
@@ -80,7 +80,8 @@ def main() -> int:
         "condition_id", "condition_id_status", "question_id", "dispute_seq_in_condition",
         "ancillary_hex", "ancillary_text", "request_timestamp",
         "proposer", "proposed_price_raw", "proposed_uma_value_class", "proposal_timestamp",
-        "proposal_tx", "disputer", "dispute_timestamp", "dispute_tx", "bond_raw",
+        "proposal_tx", "disputer", "dispute_timestamp", "dispute_tx",
+        "oo_settlement_timestamp", "oo_settlement_price_raw", "bond_raw",
         "dvm_link_status", "dvm_link_format", "dvm_request_id"]]
 
     # ---------------------------------------------------------------- ballots
@@ -105,8 +106,9 @@ def main() -> int:
 
     # ---------------------------------------------------------------- dvm_requests
     req = linked.merge(dvm, on="dvm_request_id", how="left", validate="1:1")
-    r1 = res[["dvm_request_id", "round_id", "resolved_price_raw", "tx_hash"]]
-    r1 = r1.rename(columns={"round_id": "resolution_round", "tx_hash": "resolution_tx"})
+    r1 = res[["dvm_request_id", "round_id", "resolved_price_raw", "tx_hash", "block_timestamp"]]
+    r1 = r1.rename(columns={"round_id": "resolution_round", "tx_hash": "resolution_tx",
+                             "block_timestamp": "dvm_resolution_timestamp"})
     req = req.merge(r1, on="dvm_request_id", how="left")
     req["resolution_source"] = ("LEGACY_SNAPSHOT" if legacy else "VotingV2.RequestResolved")
     req.loc[req["resolved_price_raw"].isna(), "resolution_source"] = None
@@ -137,6 +139,7 @@ def main() -> int:
         "roll_count", "first_round", "latest_round",
         "resolution_status", "resolution_round", "resolved_price_raw", "resolved_uma_value_class",
         "resolved_ctf_payout", "resolved_adapter_effect", "resolution_source", "resolution_tx",
+        "dvm_resolution_timestamp",
         "ballot_status", "n_ballots", "n_voters", "n_rounds", "revealed_weight_raw",
         "first_reveal_ts", "last_reveal_ts"]]
 
@@ -274,6 +277,8 @@ def main() -> int:
         "built_utc": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         "rows": {k: int(len(v)) for k, v in tables.items()},
         "counts": {
+            "settled_cases": int(cases["oo_settlement_timestamp"].notna().sum()),
+            "unsettled_cases": int(cases["oo_settlement_timestamp"].isna().sum()),
             "cases_by_link_status": cases["dvm_link_status"].value_counts().to_dict(),
             "cases_by_oo_contract": cases["oo_contract"].value_counts().to_dict(),
             "linked_conditions": int(req["condition_id"].nunique()),

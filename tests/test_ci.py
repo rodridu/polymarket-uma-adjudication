@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -157,11 +158,11 @@ class TestMiniFixtureInvariants:
         assert pre["dvm_request_id"].isna().all()
 
     def test_fixture_nonempty(self):
-        assert len(MINI_TABLES["cases"]) == 3
-        assert len(MINI_TABLES["dvm_requests"]) == 2
-        assert len(MINI_TABLES["rounds"]) == 2
-        assert len(MINI_TABLES["ballots"]) == 40
-        assert len(MINI_TABLES["crosswalk"]) == 3
+        assert len(MINI_TABLES["cases"]) == 4
+        assert len(MINI_TABLES["dvm_requests"]) == 3
+        assert len(MINI_TABLES["rounds"]) == 3
+        assert len(MINI_TABLES["ballots"]) == 621
+        assert len(MINI_TABLES["crosswalk"]) == 4
 
 
 _skip_commit = pytest.mark.skipif(not _HAS_COMMIT_LAYER,
@@ -221,6 +222,89 @@ class TestCommitLayerMiniFixtures:
         assert len(MINI_TABLES["commits"]) > 0
         assert len(MINI_TABLES["participation"]) > 0
         assert len(MINI_TABLES["voter_request_incentives"]) > 0
+
+
+class TestUsdcAmountConversion:
+    """USDC raw → Decimal conversion: 6 decimals, exact arithmetic, no float."""
+
+    def test_known_sample_752(self):
+        from pmvotes.semantics import usdc_amount
+        assert usdc_amount(752_000_000) == Decimal("752")
+
+    def test_zero(self):
+        from pmvotes.semantics import usdc_amount
+        assert usdc_amount(0) == Decimal("0")
+
+    def test_one_cent(self):
+        from pmvotes.semantics import usdc_amount
+        assert usdc_amount(10_000) == Decimal("0.01")
+
+    def test_one_usdc(self):
+        from pmvotes.semantics import usdc_amount
+        assert usdc_amount(1_000_000) == Decimal("1")
+
+    def test_not_nine_decimals(self):
+        """752000000 / 10^9 = 0.752 — wrong. Must be 752."""
+        from pmvotes.semantics import usdc_amount
+        result = usdc_amount(752_000_000)
+        assert result != Decimal("0.752"), "Using 10^9 decimals instead of 10^6"
+
+    def test_result_is_decimal_not_float(self):
+        from pmvotes.semantics import usdc_amount
+        result = usdc_amount(752_000_000)
+        assert isinstance(result, Decimal)
+
+    def test_rejects_negative(self):
+        from pmvotes.semantics import usdc_amount
+        with pytest.raises(ValueError):
+            usdc_amount(-1)
+
+    def test_rejects_non_int(self):
+        from pmvotes.semantics import usdc_amount
+        with pytest.raises(TypeError):
+            usdc_amount(752.0)
+
+    def test_rejects_bool(self):
+        from pmvotes.semantics import usdc_amount
+        with pytest.raises(TypeError):
+            usdc_amount(True)
+
+
+class TestSettlementFields:
+    """v1.2.0 settlement timestamp fields on mini fixtures."""
+
+    def test_cases_has_settlement_columns(self):
+        c = MINI_TABLES["cases"]
+        assert "oo_settlement_timestamp" in c.columns
+        assert "oo_settlement_price_raw" in c.columns
+
+    def test_dvm_has_resolution_timestamp(self):
+        assert "dvm_resolution_timestamp" in MINI_TABLES["dvm_requests"].columns
+
+    def test_settlement_null_consistency(self):
+        c = MINI_TABLES["cases"]
+        assert (c["oo_settlement_timestamp"].isna() == c["oo_settlement_price_raw"].isna()).all()
+
+    def test_fixture_has_both_settled_and_unsettled(self):
+        c = MINI_TABLES["cases"]
+        assert c["oo_settlement_timestamp"].notna().any(), "no settled cases in fixture"
+        assert c["oo_settlement_timestamp"].isna().any(), "no unsettled cases in fixture"
+
+    def test_settlement_timestamp_range(self):
+        c = MINI_TABLES["cases"]
+        ts = pd.to_numeric(c["oo_settlement_timestamp"].dropna())
+        assert (ts >= 1_600_000_000).all()
+        assert (ts <= 2_000_000_000).all()
+
+    def test_settlement_price_raw_integer(self):
+        c = MINI_TABLES["cases"]
+        vals = c["oo_settlement_price_raw"].dropna()
+        assert all(INT_RE.match(str(v)) for v in vals), "non-integer settlement price"
+
+    def test_dvm_resolution_timestamp_coverage(self):
+        q = MINI_TABLES["dvm_requests"]
+        resolved = q[q["resolution_status"].eq("RESOLVED")]
+        assert resolved["dvm_resolution_timestamp"].notna().all()
 
 
 class TestClassificationEdgeCases:

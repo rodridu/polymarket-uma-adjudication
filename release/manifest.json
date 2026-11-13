@@ -1,8 +1,8 @@
 {
   "dataset": "polymarket-uma-adjudication",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "build_mode": "CHAIN",
-  "built_utc": "2026-11-12T08:32:47+00:00",
+  "built_utc": "2026-11-13T05:55:21+00:00",
   "rows": {
     "cases": 4264,
     "dvm_requests": 4261,
@@ -13,6 +13,8 @@
     "voter_request_incentives": 3001666
   },
   "counts": {
+    "settled_cases": 4193,
+    "unsettled_cases": 71,
     "cases_by_link_status": {
       "DVM_EXACT": 4261,
       "PRE_VOTING_V2": 3
@@ -72,8 +74,8 @@
     "last_round_id": 10347
   },
   "sha256": {
-    "cases.parquet": "f0b04887412637f3cdf5b47e061c325cf704db16fc4eea46eda49606c367df42",
-    "dvm_requests.parquet": "f3f1edd4e01bcd8ff01f198159cf2ad56d2e30c388b9728d17c93f47a7e832f3",
+    "cases.parquet": "33e0f5960f1c1cd9d441c0a8065b5f89d9fc337028ce26847edc98250fb200fd",
+    "dvm_requests.parquet": "88c3f772d05cc667802f128a407f2804c3a0b7d692bc8868aa8406aec3b558cf",
     "rounds.parquet": "dcb352e172bdf19b8e1d33ccd0051719aafe248e3a1789ef74630491907437b6",
     "ballots.parquet": "f0d612b45565987eb2bdcf75c6af2d0ac00fd912c9ddeca076e58c0ad7cc50c6",
     "commits.parquet": "5e9c5b625ad4b97ab11254c0fc313004658a66a3215bff14a6da13eb92f57392",
